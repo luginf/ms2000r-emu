@@ -460,7 +460,7 @@ int run_thin_gui(MS2000::Ms2kRunner& runner)
         if (audioSel < 0 || !dsp) return;
         { int32_t l, r; while (dsp->popAudio(l, r)) {} }             // start from an empty ring
         primed = false;
-        audio.open(audioDevs[audioSel].id, [dsp, &gain, &primed](float* lr, uint32_t frames) -> uint32_t {
+        if (!audio.open(audioDevs[audioSel].id, [dsp, &gain, &primed](float* lr, uint32_t frames) -> uint32_t {
             const float g = gain.load(std::memory_order_relaxed) / 8388608.0f;
             uint32_t n = 0; int32_t l, r;
             while (n < frames && dsp->popAudio(l, r)) { lr[2 * n] = l * g; lr[2 * n + 1] = r * g; rec.push(l, r); ++n; }
@@ -473,7 +473,7 @@ int run_thin_gui(MS2000::Ms2kRunner& runner)
             // silence of a machine that has not started its audio yet.
             if (!primed) { for (uint32_t i = 0; i < 2 * frames; ++i) lr[i] = 0.0f; return frames; }
             return n;
-        });
+        })) return;                                                   // no device: stay on the wall clock (error shown below)
         runner.setAudioPaced(true, 2400);                             // 50 ms of emulated audio ahead
         st.audio = audioDevs[audioSel].name;
     };
