@@ -1,4 +1,11 @@
 #pragma once
+#ifndef _WIN32
+// no MMCSS outside Windows: the same API as no-ops
+struct MmcssHandle {};
+enum AVRT_PRIORITY { AVRT_PRIORITY_CRITICAL };
+inline bool enable_mmcss(MmcssHandle&, const wchar_t* = L"", AVRT_PRIORITY = AVRT_PRIORITY_CRITICAL) { return false; }
+inline void disable_mmcss(MmcssHandle&) {}
+#else
 #include <windows.h>
 #include <avrt.h>
 #include <mmsystem.h>
@@ -41,3 +48,4 @@ inline void disable_mmcss(MmcssHandle& h)
     h.timePeriod = false;
   }
 }
+#endif

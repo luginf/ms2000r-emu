@@ -609,7 +609,7 @@ static Lcd g_lcd;
      
      buffer[current_head] = {addr, write, val, 
                             static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(
-                                std::chrono::high_resolution_clock::now().time_since_epoch()).count())};
+                                std::chrono::steady_clock::now().time_since_epoch()).count())};
      
      head.store(next_head, std::memory_order_relaxed);
      
@@ -1891,7 +1891,7 @@ private:
     void emulatorLoop() {
         std::wcout << L"🔥 Starting emulator loop..." << std::endl;
         Logger::instance().info(L"Starting emulator loop");
-        auto start_time = std::chrono::high_resolution_clock::now();
+        auto start_time = std::chrono::steady_clock::now();
         
         std::wcout << L"🔥 Pre-warming for optimal performance..." << std::endl;
         
@@ -2260,8 +2260,8 @@ private:
         }
     }
     
-    void updatePerformanceDisplay(const std::chrono::high_resolution_clock::time_point& start_time) {
-        auto now = std::chrono::high_resolution_clock::now();
+    void updatePerformanceDisplay(const std::chrono::steady_clock::time_point& start_time) {
+        auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time);
         uint64_t total_cycles = m_total_cycles.load();
         uint32_t batch_mode = m_batch_mode.load();

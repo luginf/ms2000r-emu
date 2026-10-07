@@ -26,7 +26,7 @@ public:
             m_currentSeed = m_config.prngSeed;
         } else {
             // Auto-generate seed from high-resolution clock
-            auto now = std::chrono::high_resolution_clock::now();
+            auto now = std::chrono::steady_clock::now();
             m_currentSeed = static_cast<uint64_t>(now.time_since_epoch().count());
         }
         

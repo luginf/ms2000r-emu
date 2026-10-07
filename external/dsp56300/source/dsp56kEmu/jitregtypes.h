@@ -68,7 +68,7 @@ namespace dsp56k
 	static constexpr JitReg64 g_nonVolatileGPs[] = { asmjit::x86::rbx, asmjit::x86::rbp, asmjit::x86::rsp
 	                                               , asmjit::x86::r12, asmjit::x86::r13, asmjit::x86::r14, asmjit::x86::r15};
 	
-	static constexpr JitReg128 g_nonVolatileXMMs[] = {};
+	static constexpr std::array<JitReg128, 0> g_nonVolatileXMMs{};
 
 	// their register set (rbx becomes regDspPtr and leaves the pool, r8 joins it) with the
 	// volatiles-first ordering, see static_assert in jit.cpp

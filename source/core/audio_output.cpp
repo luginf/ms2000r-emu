@@ -240,7 +240,7 @@ void AudioOutput::pushAudioData(const std::vector<float>& samples) {
     AudioBuffer buffer(samples.size(), m_sampleRate, m_channels);
     buffer.samples = samples;
     buffer.timestamp = std::chrono::duration_cast<std::chrono::microseconds>(
-        std::chrono::high_resolution_clock::now().time_since_epoch()).count();
+        std::chrono::steady_clock::now().time_since_epoch()).count();
     
     m_audioQueue.push(buffer);
     m_bufferCondition.notify_one();

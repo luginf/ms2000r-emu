@@ -42,6 +42,8 @@ if(WIN32)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W4")
 else()
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Wpedantic")
+    # MSVC-isms (__forceinline, fopen_s, transitive includes) - see compat_posix.h
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-include${CMAKE_CURRENT_SOURCE_DIR}/source/core/compat_posix.h>)
 endif()
 
 # DSP56300 submodule
@@ -182,6 +184,10 @@ if(MSVC)
     target_compile_options(ms2000 PRIVATE $<$<CONFIG:Release>:/GL /GS->)
     set_property(TARGET ms2000 APPEND PROPERTY STATIC_LIBRARY_OPTIONS $<$<CONFIG:Release>:/LTCG>)
     target_link_options(ms2000 INTERFACE $<$<CONFIG:Release>:/LTCG>)
+endif()
+
+if(NOT MSVC)
+    set_source_files_properties(source/core/h8s2350_simd_optimizations.cpp PROPERTIES COMPILE_OPTIONS "-mavx2")
 endif()
 
 # MS2000 library properties
