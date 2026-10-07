@@ -28,7 +28,7 @@ Standalone application (Windows, ImGui) with the full MS2000R front panel, and a
   `Contents\Resources\MS2000R_engine.dll`; every instance after the first runs from its own copy of it in
   `%TEMP%\MS2000R_engines` (removed when the host unloads the plugin), so each instance is a separate machine.
 
-Known limits: Windows only; old hosts (VSTHost) can hang when leaving the demo
+Known limits: Windows and Linux (standalone only) - the VST3 plugin is Windows only; old hosts (VSTHost) can hang when leaving the demo
 songs. The emulator needs a recent CPU - it runs about 2x real time on a current desktop; the plugin runs at
 96 kHz with a 128-sample buffer (measured: 0.62 ms median, 0.96 ms worst per 1.33 ms block after the boot).
 Next: a preset library page.
@@ -70,6 +70,30 @@ build\Release\ms2000_emulator.exe --gui
 ```
 
 `dist\MS2000R.bat` and `dist\MS2000R (log).bat` are the launchers to put beside the exe.
+
+## Build (Linux, standalone only)
+
+g++ 13+ (or another C++17 compiler), CMake, Ninja, and the development packages for GLFW, OpenGL, ALSA and ImGui
+(Debian/Ubuntu: `libglfw3-dev libasound2-dev libimgui-dev`). No vcpkg needed. The VST3 plugin is not ported.
+
+```
+cmake -S . -B build -G Ninja
+cmake --build build --target ms2000_emulator
+cd /folder/with/flash.bin && /path/to/dist/ms2000r.sh     # or: MS2K_HOME=/folder dist/ms2000r.sh [--log]
+```
+
+`dist/ms2000r.sh` is the Linux launcher (the counterpart of `MS2000R.bat`): it runs
+`ms2000_emulator --rom flash.bin --gui --audio --power-on` in the current folder, or in `$MS2K_HOME` if set, finding the
+binary beside the script or in `../build/`. `--log` writes `ms2000_gui.log` there (for a bug report); any other argument is
+passed on to the emulator. The folder must be writable and hold `flash.bin`, `full FW/boot-362.ms2000.bin` and, optionally,
+`hd44780_a00.bin`.
+
+- Audio out/in go through ALSA PCM (`default`, `pipewire`, `pulse` and the `sysdefault:` endpoints are listed).
+- MIDI goes through the ALSA sequencer: entry 0 of each list is a virtual port "MS2000R" (connect it with
+  `aconnect` or a patchbay), the other entries are the existing hardware or software ports.
+- .syx import/export asks for the file with `zenity` or `kdialog` (one of them must be installed).
+- The working folder (ROMs, `thin_gui.ini`, `recordings/`) must be writable.
+- Your user needs access to the sound server's session (and to `/dev/snd`, group `audio`, for hardware ports).
 
 VST3 plugin (JUCE is fetched at configure time):
 

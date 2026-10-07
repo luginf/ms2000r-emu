@@ -1,5 +1,6 @@
 #pragma once
-// Host audio out (WASAPI, shared mode) and MIDI in (winmm) for the thin GUI. Windows only.
+// Host audio out (WASAPI, shared mode) and MIDI in (winmm) for the thin GUI - host_io_win.cpp.
+// On Linux the same classes are implemented over ALSA (PCM + sequencer) in host_io_linux.cpp.
 // Nothing here models MS2000 hardware: it is the bridge between the emulated board's
 // outputs/inputs and the PC's devices.
 #include <cstdint>
@@ -41,6 +42,7 @@ private:
     std::atomic<uint64_t> m_underrun{0};
     std::atomic<uint32_t> m_devRate{0};
     uint32_t m_bufferMs = 20;
+    void* m_handle = nullptr;       // Linux: snd_pcm_t* (host_io_linux.cpp); unused on Windows
     mutable std::mutex m_errMx;
     std::string m_err;
 };
@@ -64,6 +66,7 @@ private:
     std::atomic<bool> m_stop{false};
     std::atomic<bool> m_dead{false};
     std::atomic<uint64_t> m_frames{0};
+    void* m_handle = nullptr;       // Linux: snd_pcm_t*; unused on Windows
     mutable std::mutex m_errMx;
     std::string m_err;
 };

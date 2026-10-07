@@ -235,8 +235,27 @@ if(WIN32)
         target_compile_definitions(ms2000_emulator PRIVATE GUI_DISABLED)
     endif()
 else()
-    message(STATUS "Non-Windows platform - GUI mode will be disabled")
-    target_compile_definitions(ms2000_emulator PRIVATE GUI_DISABLED)
+    # Linux: the thin GUI on GLFW + OpenGL 3 + ImGui (libimgui-dev, libglfw3-dev), audio and MIDI over ALSA
+    find_package(glfw3 QUIET)
+    find_package(OpenGL QUIET)
+    find_package(ALSA QUIET)
+    find_library(IMGUI_LIB imgui)
+    find_path(IMGUI_INC imgui.h PATH_SUFFIXES imgui)
+    if(glfw3_FOUND AND OpenGL_FOUND AND ALSA_FOUND AND IMGUI_LIB AND IMGUI_INC)
+        target_sources(ms2000_emulator PRIVATE
+            source/gui/panel_widgets.cpp
+            source/gui/thin_gui.cpp
+            source/audio/host_io_linux.cpp
+            source/gui/stb_impl_linux.cpp   # Debian's libimgui expects the application to provide the stb implementations
+        )
+        target_include_directories(ms2000_emulator PRIVATE ${IMGUI_INC} ${IMGUI_INC}/backends)
+        target_link_libraries(ms2000_emulator ${IMGUI_LIB} glfw OpenGL::GL ALSA::ALSA)
+        target_compile_definitions(ms2000_emulator PRIVATE IMGUI_ENABLED)
+        message(STATUS "MS2000 Emulator with ImGui/GLFW GUI, ALSA audio and MIDI will be built")
+    else()
+        message(STATUS "Linux GUI needs glfw3, OpenGL, ALSA and imgui (libglfw3-dev libasound2-dev libimgui-dev) - GUI disabled")
+        target_compile_definitions(ms2000_emulator PRIVATE GUI_DISABLED)
+    endif()
 endif()
 message(STATUS "MS2000 Main Emulator will be built")
 

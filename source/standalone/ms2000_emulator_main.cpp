@@ -11,7 +11,6 @@
 #include "../core/soak_test_monitor.h"  // fw27.txt: Long-run soak testing
 #include "../core/panel_timeline_visualizer.h"  // fw27.txt: Panel timeline & LCD diff visualization
 #ifdef IMGUI_ENABLED
-#include "../gui/gui_win32_dx11.h"  // fw28.txt: Win32/DX11 GUI
 #include "../gui/thin_gui.h"
 #endif
 #include <iostream>
@@ -1052,7 +1051,7 @@ int main(int argc, char** argv) {
     // fw28.txt: Handle GUI mode
     if (config.mode == RunMode::GUI) {
 #ifdef IMGUI_ENABLED
-        std::cout << "fw28.txt: MS2000 Emulator - GUI Mode (Win32/DX11)\n";
+        std::cout << "fw28.txt: MS2000 Emulator - GUI Mode\n";
         std::cout << "ROM:  " << config.rom << "\n";
         std::cout << "Audio: " << (config.audio ? "ENABLED" : "disabled") << "\n";
         std::cout << "MMCSS: " << (config.useMmcss ? "ENABLED" : "disabled") << "\n";
@@ -1079,21 +1078,13 @@ int main(int argc, char** argv) {
         
         MS2000::Ms2kRunner runner(cfg, hooks);
         
-        // Configure GUI
-        AppConfig guiCfg;
-        guiCfg.title = "KORG MS2000 Emulator - fw28.txt GUI";
-        guiCfg.width = 1280;
-        guiCfg.height = 800;
-        guiCfg.vsync = true;
-        
         // 2026-09-24: the thin test GUI (audio out / MIDI in / LCD). The old fw28 window drew
         // placeholder numbers ("bytes=12345", "tick=987654") - fiction, not a view of the machine.
         if (!runner.init()) {
             std::cerr << "ERROR: Failed to initialize MS2000 runner (ROM load/mapping failed)\n";
             return 2;
         }
-        std::cout << "Starting test GUI (Win32/DX11 + ImGui)...\n";
-        (void)guiCfg;
+        std::cout << "Starting test GUI (ImGui)...\n";
         return run_thin_gui(runner);
 #else
         std::cout << "GUI mode requested but ImGui support not available.\n";

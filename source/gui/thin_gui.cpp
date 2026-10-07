@@ -1,5 +1,6 @@
 // Thin GUI for user tests (2026-09-24): audio out + MIDI in selection, the 2x16 LCD, status.
 // Everything shown is measured from the running emulation; nothing is simulated here.
+#ifdef _WIN32
 #define NOMINMAX
 #include <windows.h>
 #include <d3d11.h>
@@ -7,10 +8,30 @@
 #pragma comment(lib, "d3d11.lib")
 #pragma comment(lib, "winmm.lib")
 #include <timeapi.h>
+#else
+// Linux: GLFW + OpenGL 3 (ImGui backends), ALSA for audio and MIDI (host_io_linux.cpp)
+#include <GLFW/glfw3.h>
+#include <GL/gl.h>
+#include <sys/stat.h>
+#include <chrono>
+typedef unsigned long long ULONGLONG;
+struct LARGE_INTEGER { long long QuadPart; };   // QueryPerformanceCounter in nanoseconds
+inline void QueryPerformanceCounter(LARGE_INTEGER* t)
+{ t->QuadPart = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+inline void QueryPerformanceFrequency(LARGE_INTEGER* f) { f->QuadPart = 1000000000LL; }
+inline ULONGLONG GetTickCount64()
+{ return ULONGLONG(std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count()); }
+inline int _mkdir(const char* p) { return mkdir(p, 0755); }
+#endif
 
 #include "imgui.h"
+#ifdef _WIN32
 #include "imgui_impl_win32.h"
 #include "imgui_impl_dx11.h"
+#else
+#include "backends/imgui_impl_glfw.h"
+#include "backends/imgui_impl_opengl3.h"
+#endif
 
 #include "thin_gui.h"
 #include "../core/ms2000_runner.h"
@@ -20,7 +41,6 @@
 #include "vector_panel_imgui.h"
 #include "../core/syx_tool.h"
 #include "../core/knob_follow.h"
-#include <commdlg.h>
 #include <cmath>
 #include <algorithm>
 #include "../audio/host_io_win.h"
@@ -28,7 +48,6 @@
 #include <atomic>
 #include <mutex>
 #include <ctime>
-#include <direct.h>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -37,9 +56,12 @@
 #include <deque>
 #include <thread>
 
+#ifdef _WIN32
 extern LRESULT ImGui_ImplWin32_WndProcHandler(HWND, UINT, WPARAM, LPARAM);
+#endif
 
 namespace {
+#ifdef _WIN32
 ID3D11Device*           g_dev = nullptr;
 ID3D11DeviceContext*    g_ctx = nullptr;
 IDXGISwapChain*         g_swap = nullptr;
@@ -75,13 +97,15 @@ LRESULT WINAPI wndProc(HWND h, UINT m, WPARAM w, LPARAM l)
     return DefWindowProc(h, m, w, l);
 }
 
+#endif   // _WIN32
+
 // HD44780 A00 character generator, if the local dump is present (16 bytes a character, rows
 // 0-7 used, 5 low bits). Without it the LCD is drawn as text.
 struct CgRom { bool ok = false; uint8_t d[256][8]{}; };
 CgRom loadCgRom()
 {
     CgRom r;
-    for (const char* p : { "hd44780_a00.bin", "..\\hd44780_a00.bin", "..\\..\\hd44780_a00.bin" }) {
+    for (const char* p : { "hd44780_a00.bin", "../hd44780_a00.bin", "../../hd44780_a00.bin" }) {
         std::ifstream f(p, std::ios::binary);
         if (!f) continue;
         std::vector<char> b((std::istreambuf_iterator<char>(f)), {});
@@ -152,6 +176,7 @@ void drawLcdPanel(const LcdGuiSnapshot& s, const CgRom& rom, ImVec2 a, ImVec2 b)
 
 // Saves this window's own back buffer as a BMP (MS2K_GUISHOT=<seconds>: once, that long after
 // start, to thin_gui_shot.bmp). Only the GUI's own pixels - never the rest of the screen.
+#ifdef _WIN32
 void saveBackBuffer(const char* path)
 {
     ID3D11Texture2D* bb = nullptr;
@@ -184,6 +209,30 @@ void saveBackBuffer(const char* path)
     }
     bb->Release();
 }
+#else
+void saveBackBuffer(const char* path, GLFWwindow* win)
+{
+    int w = 0, h = 0; glfwGetFramebufferSize(win, &w, &h);
+    if (w <= 0 || h <= 0) return;
+    std::vector<uint8_t> px(size_t(w) * h * 4);
+    glPixelStorei(GL_PACK_ALIGNMENT, 1);
+    glReadPixels(0, 0, w, h, GL_RGBA, GL_UNSIGNED_BYTE, px.data());   // bottom row first, as a BMP wants it
+    FILE* f = fopen(path, "wb");
+    if (!f) return;
+    const uint32_t row = uint32_t(w) * 4, size = 54 + row * uint32_t(h);
+    uint8_t hdr[54] = { 'B', 'M' };
+    auto put = [&](int o, uint32_t v) { hdr[o] = uint8_t(v); hdr[o + 1] = uint8_t(v >> 8); hdr[o + 2] = uint8_t(v >> 16); hdr[o + 3] = uint8_t(v >> 24); };
+    put(2, size); put(10, 54); put(14, 40); put(18, uint32_t(w)); put(22, uint32_t(h)); hdr[26] = 1; hdr[28] = 32; put(34, row * uint32_t(h));
+    fwrite(hdr, 1, 54, f);
+    std::vector<uint8_t> line(row);
+    for (int y = 0; y < h; ++y) {
+        const uint8_t* src = px.data() + size_t(y) * row;
+        for (int x = 0; x < w; ++x) { line[4*x] = src[4*x+2]; line[4*x+1] = src[4*x+1]; line[4*x+2] = src[4*x]; line[4*x+3] = 255; }
+        fwrite(line.data(), 1, row, f);
+    }
+    fclose(f);
+}
+#endif
 
 struct Settings {
     std::string audio, midi, midiOut; float volume = 0.7f;
@@ -236,6 +285,7 @@ void saveSettings(const Settings& s)
 int run_thin_gui(MS2000::Ms2kRunner& runner)
 {
     using namespace MS2000;
+#ifdef _WIN32
     // An emulator is a real-time load: opt out of Windows' execution-speed throttling (EcoQoS),
     // which is applied to windows that are not in the foreground, and ask for 1 ms timer
     // granularity so the audio-paced 1 ms waits are 1 ms.
@@ -254,6 +304,16 @@ int run_thin_gui(MS2000::Ms2kRunner& runner)
     createRT();
     ShowWindow(hwnd, SW_SHOWDEFAULT); UpdateWindow(hwnd);
 
+#else
+    if (!glfwInit()) { fprintf(stderr, "[THIN-GUI] glfwInit failed\n"); return -1; }
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    GLFWwindow* window = glfwCreateWindow(1600, 1060, "MS2000R emulator v" MS2K_VERSION, nullptr, nullptr);
+    if (!window) { fprintf(stderr, "[THIN-GUI] cannot create the window\n"); glfwTerminate(); return -1; }
+    glfwMakeContextCurrent(window);
+    glfwSwapInterval(1);
+#endif
+
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;
@@ -264,12 +324,27 @@ int run_thin_gui(MS2000::Ms2kRunner& runner)
     {
         ImGuiIO& fio = ImGui::GetIO();
         fio.Fonts->AddFontDefault();
+#ifdef _WIN32
         const char* cands[] = { "C:\\Windows\\Fonts\\ARIALNB.TTF", "C:\\Windows\\Fonts\\arialbd.ttf", "C:\\Windows\\Fonts\\segoeuib.ttf" };
         for (const char* cf : cands)
             if (GetFileAttributesA(cf) != INVALID_FILE_ATTRIBUTES) { panelFont = fio.Fonts->AddFontFromFileTTF(cf, 40.0f); break; }
+#else
+        const char* cands[] = { "/usr/share/fonts/truetype/liberation/LiberationSansNarrow-Bold.ttf",
+                                "/usr/share/fonts/truetype/liberation2/LiberationSansNarrow-Bold.ttf",
+                                "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+                                "/usr/share/fonts/truetype/dejavu/DejaVuSansCondensed-Bold.ttf",
+                                "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf" };
+        for (const char* cf : cands)
+            if (FILE* t = fopen(cf, "rb")) { fclose(t); panelFont = fio.Fonts->AddFontFromFileTTF(cf, 40.0f); break; }
+#endif
     }
+#ifdef _WIN32
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_dev, g_ctx);
+#else
+    ImGui_ImplGlfw_InitForOpenGL(window, true);
+    ImGui_ImplOpenGL3_Init("#version 130");
+#endif
 
     const CgRom rom = loadCgRom();
     Settings st = loadSettings();
@@ -290,7 +365,7 @@ int run_thin_gui(MS2000::Ms2kRunner& runner)
             std::lock_guard<std::mutex> l(mx); if (f) return;
             _mkdir("recordings");
             char nm[96]; time_t t = time(nullptr); tm lt; localtime_s(&lt, &t);
-            strftime(nm, sizeof nm, "recordings\\ms2000_%Y%m%d_%H%M%S.wav", &lt);
+            strftime(nm, sizeof nm, "recordings/ms2000_%Y%m%d_%H%M%S.wav", &lt);
             path = nm; f = fopen(nm, "wb"); frames = 0;
             if (f) { uint8_t h[44] = {}; fwrite(h, 1, 44, f); active.store(true, std::memory_order_release); }
         }
@@ -462,11 +537,17 @@ int run_thin_gui(MS2000::Ms2kRunner& runner)
     bool testNote = false;
     bool done = false;
     while (!done) {
+#ifdef _WIN32
         MSG msg;
         while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) { TranslateMessage(&msg); DispatchMessage(&msg); if (msg.message == WM_QUIT) done = true; }
         if (done) break;
 
         ImGui_ImplDX11_NewFrame(); ImGui_ImplWin32_NewFrame(); ImGui::NewFrame();
+#else
+        glfwPollEvents();
+        if (glfwWindowShouldClose(window)) break;
+        ImGui_ImplOpenGL3_NewFrame(); ImGui_ImplGlfw_NewFrame(); ImGui::NewFrame();
+#endif
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
         ImGui::Begin("main", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings);
@@ -808,7 +889,8 @@ int run_thin_gui(MS2000::Ms2kRunner& runner)
             char lbl[64]; snprintf(lbl, sizeof lbl, "Stop recording (%.1f s)###recbtn", rec.seconds());
             if (ImGui::Button(lbl)) rec.stop();
         }
-        {   // SYX-1: a .syx into the machine's MIDI IN / all 128 programs out of it (Windows file dialogs)
+        {   // SYX-1: a .syx into the machine's MIDI IN / all 128 programs out of it (file dialogs: Windows common dialogs, zenity/kdialog on Linux)
+#ifdef _WIN32
             auto dlg = [&](bool saving, std::string& out) {
                 char file[MAX_PATH] = {};
                 OPENFILENAMEA ofn{}; ofn.lStructSize = sizeof ofn; ofn.hwndOwner = hwnd;
@@ -818,6 +900,26 @@ int run_thin_gui(MS2000::Ms2kRunner& runner)
                 if (!(saving ? GetSaveFileNameA(&ofn) : GetOpenFileNameA(&ofn))) return false;
                 out = file; return true;
             };
+#else
+            // no toolkit of our own: the desktop's dialog through zenity, or kdialog
+            auto dlg = [&](bool saving, std::string& out) {
+                const char* cmds[] = {
+                    saving ? "zenity --file-selection --save --confirm-overwrite --filename=ms2000.syx --file-filter='SysEx | *.syx' 2>/dev/null"
+                           : "zenity --file-selection --file-filter='SysEx | *.syx' --file-filter='All files | *' 2>/dev/null",
+                    saving ? "kdialog --getsavefilename ms2000.syx '*.syx' 2>/dev/null" : "kdialog --getopenfilename . '*.syx' 2>/dev/null" };
+                for (const char* c : cmds) {
+                    FILE* p = popen(c, "r");
+                    if (!p) continue;
+                    char buf[1024] = {};
+                    const bool got = fgets(buf, sizeof buf, p) != nullptr;
+                    const int rc = pclose(p);
+                    if (!got || rc != 0) { if (rc == 127 * 256) continue; return false; }   // 127: not installed -> next tool
+                    out = buf; while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
+                    return !out.empty();
+                }
+                return false;
+            };
+#endif
             ImGui::SameLine();
             std::string f;
             if (ImGui::Button("Load .syx") && !syx.busy() && dlg(false, f)) syx.startImport(f);
@@ -868,11 +970,21 @@ int run_thin_gui(MS2000::Ms2kRunner& runner)
 
         ImGui::Render();
         const float clear[4] = { 0.08f, 0.09f, 0.10f, 1.0f };
+#ifdef _WIN32
         g_ctx->OMSetRenderTargets(1, &g_rtv, nullptr);
         g_ctx->ClearRenderTargetView(g_rtv, clear);
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
         if (shotAt > 0 && GetTickCount64() >= shotAt) { saveBackBuffer("thin_gui_shot.bmp"); shotAt = 0; }
         g_swap->Present(1, 0);
+#else
+        int fbw = 0, fbh = 0; glfwGetFramebufferSize(window, &fbw, &fbh);
+        glViewport(0, 0, fbw, fbh);
+        glClearColor(clear[0], clear[1], clear[2], clear[3]);
+        glClear(GL_COLOR_BUFFER_BIT);
+        ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
+        if (shotAt > 0 && GetTickCount64() >= shotAt) { saveBackBuffer("thin_gui_shot.bmp", window); shotAt = 0; }
+        glfwSwapBuffers(window);
+#endif
     }
 
     saveSettings(st);
@@ -885,10 +997,16 @@ int run_thin_gui(MS2000::Ms2kRunner& runner)
     runner.setAudioPaced(false);
     runner.stop();
 
+#ifdef _WIN32
     timeEndPeriod(1);
     ImGui_ImplDX11_Shutdown(); ImGui_ImplWin32_Shutdown(); ImGui::DestroyContext();
     cleanupDevice();
     DestroyWindow(hwnd);
     UnregisterClass(wc.lpszClassName, wc.hInstance);
+#else
+    ImGui_ImplOpenGL3_Shutdown(); ImGui_ImplGlfw_Shutdown(); ImGui::DestroyContext();
+    glfwDestroyWindow(window);
+    glfwTerminate();
+#endif
     return 0;
 }
