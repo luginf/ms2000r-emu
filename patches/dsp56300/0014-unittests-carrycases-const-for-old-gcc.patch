@@ -1,0 +1,12 @@
+diff --git a/source/dsp56kEmu/unittests.cpp b/source/dsp56kEmu/unittests.cpp
+--- a/source/dsp56kEmu/unittests.cpp
++++ b/source/dsp56kEmu/unittests.cpp
+@@ -9103,7 +9103,7 @@ namespace dsp56k
+ 			uint64_t yAfter = ~0ull;
+ 		};
+ 
+-		static constexpr CarryCase carryCases[] =
++		static const CarryCase carryCases[] =
+ 		{
+ 			{ "adc x,a control", 0x000300, 0x00000000000001, 0x00000000000000, 0x000000000001, 0x000000000000, 0x200021, false, 0x00000000000002, 0x10 },
+ 			{ "adc x,a carry in", 0x000301, 0x00000000000001, 0x00000000000000, 0x000000000001, 0x000000000000, 0x200021, false, 0x00000000000003, 0x10 },

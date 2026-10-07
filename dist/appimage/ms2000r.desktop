@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=MS2000R
+Comment=KORG MS2000R emulator (firmware-level)
+Exec=ms2000_emulator
+Icon=ms2000r
+Categories=AudioVideo;Audio;Music;
+Terminal=false

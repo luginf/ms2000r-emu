@@ -201,6 +201,9 @@ target_link_libraries(ms2000
     dsp56kEmu
     ${CMAKE_THREAD_LIBS_INIT}
 )
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9)
+    target_link_libraries(ms2000 stdc++fs)   # std::filesystem lives there before GCC 9
+endif()
 
 # ESSENTIAL EXECUTABLES ONLY (1 total - only ms2000_emulator.exe as requested)
 
@@ -239,17 +242,33 @@ else()
     find_package(glfw3 QUIET)
     find_package(OpenGL QUIET)
     find_package(ALSA QUIET)
-    find_library(IMGUI_LIB imgui)
-    find_path(IMGUI_INC imgui.h PATH_SUFFIXES imgui)
+    # ImGui: the system package, or a source tree (-DMS2K_IMGUI_DIR=/path/to/imgui, as the AppImage build does)
+    set(MS2K_IMGUI_DIR "" CACHE PATH "ImGui source tree to compile instead of the system library")
+    if(MS2K_IMGUI_DIR)
+        set(IMGUI_INC ${MS2K_IMGUI_DIR})
+        set(IMGUI_SRC ${MS2K_IMGUI_DIR}/imgui.cpp ${MS2K_IMGUI_DIR}/imgui_draw.cpp ${MS2K_IMGUI_DIR}/imgui_tables.cpp
+                      ${MS2K_IMGUI_DIR}/imgui_widgets.cpp ${MS2K_IMGUI_DIR}/backends/imgui_impl_glfw.cpp
+                      ${MS2K_IMGUI_DIR}/backends/imgui_impl_opengl3.cpp)
+        set(IMGUI_LIB ${IMGUI_SRC})
+    else()
+        find_library(IMGUI_LIB imgui)
+        find_path(IMGUI_INC imgui.h PATH_SUFFIXES imgui)
+    endif()
     if(glfw3_FOUND AND OpenGL_FOUND AND ALSA_FOUND AND IMGUI_LIB AND IMGUI_INC)
         target_sources(ms2000_emulator PRIVATE
             source/gui/panel_widgets.cpp
             source/gui/thin_gui.cpp
             source/audio/host_io_linux.cpp
-            source/gui/stb_impl_linux.cpp   # Debian's libimgui expects the application to provide the stb implementations
         )
+        if(MS2K_IMGUI_DIR)
+            target_sources(ms2000_emulator PRIVATE ${IMGUI_SRC})   # ImGui brings its own stb
+        else()
+            # Debian's libimgui expects the application to provide the stb implementations
+            target_sources(ms2000_emulator PRIVATE source/gui/stb_impl_linux.cpp)
+            target_link_libraries(ms2000_emulator ${IMGUI_LIB})
+        endif()
         target_include_directories(ms2000_emulator PRIVATE ${IMGUI_INC} ${IMGUI_INC}/backends)
-        target_link_libraries(ms2000_emulator ${IMGUI_LIB} glfw OpenGL::GL ALSA::ALSA)
+        target_link_libraries(ms2000_emulator glfw OpenGL::GL ALSA::ALSA)
         target_compile_definitions(ms2000_emulator PRIVATE IMGUI_ENABLED)
         message(STATUS "MS2000 Emulator with ImGui/GLFW GUI, ALSA audio and MIDI will be built")
     else()

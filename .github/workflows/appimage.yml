@@ -1,0 +1,128 @@
+name: AppImage
+
+# An AppImage uses the C library of the machine it runs on, so what it needs is fixed by the system it was
+# built on. Build inside a Debian 10 (glibc 2.28) container so the result runs on Debian 10+, Ubuntu 20.04+
+# and anything newer. Debian 10 is EOL: its packages come from archive.debian.org.
+# The checkout happens on the host and only the build runs in the container, because the container's old
+# userland can't run the JavaScript actions. Debian 10 has neither a recent CMake nor ImGui: both are
+# downloaded as pinned sources/binaries and checked.
+# A v* tag also publishes the AppImage as a GitHub release. The firmware dumps are not part of it.
+on:
+  workflow_dispatch:
+  push:
+    branches: [linux-appimage]
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  appimage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download pinned appimagetool, CMake and ImGui
+        env:
+          APPIMAGETOOL_SHA256: b90f4a8b18967545fda78a445b27680a1642f1ef9488ced28b65398f2be7add2
+          CMAKE_SHA256: 72b01478eeb312bf1a0136208957784fe55a7b587f8d9f9142a7fc9b0b9e9a28
+          IMGUI_SHA256: 21dcc985bb2ae8fe48047c86135dbc438d6980a8f2e08babbda5be820592f282
+        run: |
+          curl --fail --location --output "$RUNNER_TEMP/appimagetool" \
+            https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+          echo "$APPIMAGETOOL_SHA256  $RUNNER_TEMP/appimagetool" | sha256sum --check
+          chmod +x "$RUNNER_TEMP/appimagetool"
+          curl --fail --location --output "$RUNNER_TEMP/cmake.tar.gz" \
+            https://github.com/Kitware/CMake/releases/download/v3.27.9/cmake-3.27.9-linux-x86_64.tar.gz
+          echo "$CMAKE_SHA256  $RUNNER_TEMP/cmake.tar.gz" | sha256sum --check
+          curl --fail --location --output "$RUNNER_TEMP/imgui.tar.gz" \
+            https://github.com/ocornut/imgui/archive/refs/tags/v1.90.1.tar.gz
+          echo "$IMGUI_SHA256  $RUNNER_TEMP/imgui.tar.gz" | sha256sum --check
+
+      - name: Name of the file
+        id: name
+        run: |
+          ver="${GITHUB_REF_NAME}"
+          case "$GITHUB_REF" in refs/tags/*) ;; *) ver="$(git describe --tags --always 2>/dev/null || git rev-parse --short HEAD)" ;; esac
+          echo "file=MS2000R-${ver//\//-}-x86_64.AppImage" >> "$GITHUB_OUTPUT"
+
+      - name: Build AppImage in a Debian 10 container
+        env:
+          APPIMAGE_FILE: ${{ steps.name.outputs.file }}
+        run: |
+          mkdir -p releases
+          docker run --rm \
+            -e APPIMAGE_FILE \
+            -v "$GITHUB_WORKSPACE:/workspace" \
+            -v "$RUNNER_TEMP/appimagetool:/opt/appimagetool:ro" \
+            -v "$RUNNER_TEMP/cmake.tar.gz:/opt/cmake.tar.gz:ro" \
+            -v "$RUNNER_TEMP/imgui.tar.gz:/opt/imgui.tar.gz:ro" \
+            -w /workspace \
+            debian:10 bash -euxc '
+              sed -i "s|deb.debian.org|archive.debian.org|; s|security.debian.org|archive.debian.org|; /buster-updates/d" /etc/apt/sources.list
+              echo "Acquire::Check-Valid-Until false;" > /etc/apt/apt.conf.d/99archive
+              apt-get update
+              DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+                g++ make ninja-build file ca-certificates libasound2-dev libglfw3-dev libgl1-mesa-dev
+              mkdir /opt/cmake /opt/imgui
+              tar -xzf /opt/cmake.tar.gz -C /opt/cmake --strip-components=1
+              tar -xzf /opt/imgui.tar.gz -C /opt/imgui --strip-components=1
+              printf "#!/bin/sh\nexec /opt/appimagetool --appimage-extract-and-run \"\$@\"\n" > /usr/local/bin/appimagetool
+              chmod +x /usr/local/bin/appimagetool
+
+              /opt/cmake/bin/cmake -S . -B build-appimage -G Ninja -DCMAKE_BUILD_TYPE=Release \
+                -DMS2K_IMGUI_DIR=/opt/imgui
+              /opt/cmake/bin/cmake --build build-appimage --target ms2000_emulator -j2
+
+              AD=build-appimage/MS2000R.AppDir
+              rm -rf "$AD"
+              mkdir -p "$AD/usr/bin" "$AD/usr/lib"
+              cp build-appimage/ms2000_emulator "$AD/usr/bin/"
+              # GLFW is not on every desktop: bundle it. X11, GL, ALSA and glibc come from the host.
+              lib=$(readlink -f /usr/lib/x86_64-linux-gnu/libglfw.so.3)
+              cp -L "$lib" "$AD/usr/lib/"
+              ln -sf "$(basename "$lib")" "$AD/usr/lib/libglfw.so.3"
+              cp dist/appimage/AppRun "$AD/AppRun"
+              sed -i "s/\r$//" "$AD/AppRun"
+              chmod +x "$AD/AppRun"
+              cp dist/appimage/ms2000r.desktop "$AD/"
+              cp dist/appimage/ms2000r.png "$AD/"
+              ARCH=x86_64 appimagetool "$AD" "releases/$APPIMAGE_FILE"
+
+              echo "highest glibc symbol version needed:"
+              objdump -T build-appimage/ms2000_emulator | grep -o "GLIBC_[0-9.]*" | sort -uV | tail -1
+              echo "highest GLIBCXX / CXXABI needed:"
+              objdump -T build-appimage/ms2000_emulator | grep -o "GLIBCXX_[0-9.]*" | sort -uV | tail -1
+            '
+
+      - name: Upload AppImage
+        uses: actions/upload-artifact@v4
+        with:
+          name: ms2000r-appimage
+          path: releases/*.AppImage
+          if-no-files-found: error
+
+  release:
+    needs: appimage
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: ms2000r-appimage
+          path: releases
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          chmod +x releases/*.AppImage
+          gh release create "$GITHUB_REF_NAME" releases/*.AppImage \
+            --repo "$GITHUB_REPOSITORY" --title "MS2000R $GITHUB_REF_NAME" \
+            --notes "Linux AppImage (built on Debian 10, runs on glibc 2.28+). It contains no firmware: put flash.bin and \`full FW/boot-362.ms2000.bin\` in \`~/.local/share/MS2000R\`, or start it from the folder that holds them (see the README)." \
+            || gh release upload "$GITHUB_REF_NAME" releases/*.AppImage --clobber --repo "$GITHUB_REPOSITORY"

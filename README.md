@@ -95,6 +95,15 @@ passed on to the emulator. The folder must be writable and hold `flash.bin`, `fu
 - The working folder (ROMs, `thin_gui.ini`, `recordings/`) must be writable.
 - Your user needs access to the sound server's session (and to `/dev/snd`, group `audio`, for hardware ports).
 
+### AppImage
+
+`.github/workflows/appimage.yml` builds `MS2000R-<version>-x86_64.AppImage` in a Debian 10 container (glibc 2.28, so it runs
+on Debian 10+, Ubuntu 20.04+ and newer; CMake and ImGui v1.90.1 are downloaded and checksummed, GLFW is bundled; X11, GL and
+ALSA come from the host). Run it by hand from the Actions tab, or push a `v*` tag to also publish it as a release.
+The image contains **no firmware**: it looks for `flash.bin` in `$MS2K_HOME`, then in the folder it was started from, then in
+`~/.local/share/MS2000R` (where it tells you to put the files if it finds none). The same
+`-DMS2K_IMGUI_DIR=/path/to/imgui` CMake option builds against an ImGui source tree instead of the system library.
+
 VST3 plugin (JUCE is fetched at configure time):
 
 ```

@@ -1,0 +1,32 @@
+#!/bin/bash
+# AppRun of the MS2000R AppImage. The firmware dumps are NOT in the image: they are looked for in
+#   1. $MS2K_HOME            2. the folder the AppImage was started from ($OWD)
+#   3. ${XDG_DATA_HOME:-~/.local/share}/MS2000R
+# (flash.bin, "full FW/boot-362.ms2000.bin", optionally hd44780_a00.bin). Settings, the flash state and
+# recordings/ are written to that folder, so it must be writable.
+HERE="$(dirname "$(readlink -f "${0}")")"
+export LD_LIBRARY_PATH="${HERE}/usr/lib:${LD_LIBRARY_PATH}"
+
+DATA_DIR="${XDG_DATA_HOME:-${HOME}/.local/share}/MS2000R"
+home=
+for d in "${MS2K_HOME}" "${OWD}" "${DATA_DIR}"; do
+    if [ -n "$d" ] && [ -f "$d/flash.bin" ]; then home="$d"; break; fi
+done
+if [ -z "$home" ]; then
+    mkdir -p "${DATA_DIR}"
+    msg="flash.bin not found.
+
+Put your MS2000R dumps in:
+  ${DATA_DIR}
+(flash.bin, full FW/boot-362.ms2000.bin and optionally hd44780_a00.bin),
+or start the AppImage from the folder that holds them, or set MS2K_HOME."
+    echo "$msg" >&2
+    if [ -z "$MS2K_NO_DIALOG" ]; then
+        zenity --error --no-markup --title "MS2000R" --text "$msg" 2>/dev/null \
+            || kdialog --error "$msg" 2>/dev/null || true
+    fi
+    exit 1
+fi
+cd "$home" || exit 1
+export MS2K_HOME="$home"
+exec "${HERE}/usr/bin/ms2000_emulator" --rom flash.bin --gui --audio --power-on "$@"
